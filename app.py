@@ -82,7 +82,7 @@ def damr_3dnet_posmlp(input_shape):
 def load_trained_model():
     input_shape = (16, 128, 128, 3)  # Shape used during training
     model = damr_3dnet_posmlp(input_shape)
-    model.load_weights("bilkent.weights.h5")  # Ensure this file is present in the app's directory
+    model.load_weights("mivia_full_model.h5")  # Ensure this file is present in the app's directory
     return model
 
 # Preprocess function
