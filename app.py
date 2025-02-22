@@ -143,8 +143,12 @@ st.sidebar.header("Upload Image or Video")
 uploaded_file = st.sidebar.file_uploader("Upload an image or video file", type=["mp4", "avi", "mov", "jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    file_type = imghdr.what(uploaded_file)
+    file_bytes = uploaded_file.read()
+    file_type = imghdr.what(None, h=file_bytes[:32])  # Check only the first 32 bytes
     is_image = file_type in ["jpeg", "png"]
+
+    uploaded_file.seek(0)  # Reset file pointer after checking type
+
 
     model = load_trained_model()
 
