@@ -2,13 +2,13 @@ import streamlit as st
 import numpy as np
 import cv2
 import tensorflow as tf
+import imghdr
 from keras.models import Model
 from keras.layers import (
     Dense, Dropout, Conv3D, Input, MaxPool3D, Activation, GlobalAveragePooling3D,
     Add, BatchNormalization, LayerNormalization, MultiHeadAttention, Layer
 )
 from keras.regularizers import l2
-from PIL import Image
 
 # Define ResNet Block
 def resnet_block(inputs, filters, kernel_size=(3, 3, 3), stride=(1, 1, 1), weight_decay=0.005):
@@ -86,14 +86,14 @@ def load_trained_model():
     model.load_weights("mivia_full_model.h5")  # Ensure this file is present in the app's directory
     return model
 
-# Preprocess video frames
+# Preprocess function for video
 def preprocess_video(video_frames):
     processed_frames = np.zeros((16, 128, 128, 3), dtype='float32')
-    
+
     for i, frame in enumerate(video_frames):
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  
-        frame = cv2.resize(frame, (128, 128))  
-        processed_frames[i] = frame  
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame = cv2.resize(frame, (128, 128))
+        processed_frames[i] = frame
 
     processed_frames[..., 0] -= 99.9
     processed_frames[..., 1] -= 92.1
@@ -102,32 +102,13 @@ def preprocess_video(video_frames):
     processed_frames[..., 1] /= 62.3
     processed_frames[..., 2] /= 60.3
 
-    return np.expand_dims(processed_frames, axis=0)  
+    return np.expand_dims(processed_frames, axis=0)  # (1, 16, 128, 128, 3)
 
-# Extract 16 frames from video
-def extract_frames(video_path):
-    cap = cv2.VideoCapture(video_path)
-    frames = []
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    for i in np.linspace(0, total_frames-1, 16, dtype=int):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, i)
-        ret, frame = cap.read()
-        if ret:
-            frames.append(frame)
-    
-    cap.release()
-
-    if len(frames) < 16:
-        return None  
-    return frames
-
-# Preprocess image
+# Preprocess function for image
 def preprocess_image(image):
-    image = np.array(image)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     image = cv2.resize(image, (128, 128))
-    
-    image = image.astype('float32')
+
     image[..., 0] -= 99.9
     image[..., 1] -= 92.1
     image[..., 2] -= 82.6
@@ -135,39 +116,54 @@ def preprocess_image(image):
     image[..., 1] /= 62.3
     image[..., 2] /= 60.3
 
-    return np.expand_dims(image, axis=0)  
+    return np.expand_dims(image, axis=0)  # (1, 128, 128, 3)
+
+# Extract 16 frames from video
+def extract_frames(video_path):
+    cap = cv2.VideoCapture(video_path)
+    frames = []
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    for i in np.linspace(0, total_frames - 1, 16, dtype=int):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+        ret, frame = cap.read()
+        if ret:
+            frames.append(frame)
+
+    cap.release()
+
+    if len(frames) < 16:
+        return None
+    return frames
 
 # Streamlit App
 st.title("🔥 Fire and Smoke Detection AI 🔥")
 
-st.sidebar.header("Upload File")
-file = st.sidebar.file_uploader("Upload an image or video", type=["jpg", "jpeg", "png", "mp4", "avi", "mov"])
+st.sidebar.header("Upload Image or Video")
+uploaded_file = st.sidebar.file_uploader("Upload an image or video file", type=["mp4", "avi", "mov", "jpg", "jpeg", "png"])
 
-model = load_trained_model()
+if uploaded_file is not None:
+    file_type = imghdr.what(uploaded_file)
+    is_image = file_type in ["jpeg", "png"]
 
-if file is not None:
-    file_type = file.type.split('/')[0]
+    model = load_trained_model()
 
-    if file_type == "image":
-        st.image(file, caption="Uploaded Image", use_column_width=True)
-        image = Image.open(file)
+    if is_image:
+        st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+        image = cv2.imdecode(np.frombuffer(uploaded_file.read(), np.uint8), 1)
         processed_input = preprocess_image(image)
-        prediction = model.predict(np.expand_dims(processed_input, axis=0))[0][0]
-        result = "🔥 Fire/Smoke Detected" if prediction > 0.5 else "✅ Normal"
-    
-    elif file_type == "video":
-        st.sidebar.video(file)
+        processed_input = np.expand_dims(processed_input, axis=0)  # (1, 1, 128, 128, 3)
+    else:
         temp_video_path = "temp_video.mp4"
         with open(temp_video_path, "wb") as f:
-            f.write(file.getbuffer())
-
+            f.write(uploaded_file.getbuffer())
         frames = extract_frames(temp_video_path)
-        if frames is not None:
-            processed_input = preprocess_video(frames)
-            prediction = model.predict(processed_input)[0][0]
-            result = "🔥 Fire/Smoke Detected" if prediction > 0.5 else "✅ Normal"
-        else:
-            st.error("🚨 Not enough frames extracted from the video. Try another video.")
+        processed_input = preprocess_video(frames) if frames else None
 
-    st.subheader("Prediction Result:")
-    st.write(f"**{result}** (Confidence: {prediction:.2f})")
+    if processed_input is not None:
+        prediction = model.predict(processed_input)[0][0]
+        result = "🔥 Fire Detected" if prediction > 0.5 else "✅ Normal"
+        st.subheader("Prediction Result:")
+        st.write(f"**{result}** (Confidence: {prediction:.2f})")
+    else:
+        st.error("🚨 Not enough frames extracted from the video.")
