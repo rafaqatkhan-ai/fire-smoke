@@ -8,6 +8,7 @@ from keras.layers import (
     Add, BatchNormalization, LayerNormalization, MultiHeadAttention, Layer
 )
 from keras.regularizers import l2
+from PIL import Image
 
 # Define ResNet Block
 def resnet_block(inputs, filters, kernel_size=(3, 3, 3), stride=(1, 1, 1), weight_decay=0.005):
@@ -85,16 +86,15 @@ def load_trained_model():
     model.load_weights("mivia_full_model.h5")  # Ensure this file is present in the app's directory
     return model
 
-# Preprocess function
+# Preprocess video frames
 def preprocess_video(video_frames):
     processed_frames = np.zeros((16, 128, 128, 3), dtype='float32')
     
     for i, frame in enumerate(video_frames):
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB
-        frame = cv2.resize(frame, (128, 128))  # Resize to (128, 128)
-        processed_frames[i] = frame  # Store the processed frame
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  
+        frame = cv2.resize(frame, (128, 128))  
+        processed_frames[i] = frame  
 
-    # Normalize (Same as in training)
     processed_frames[..., 0] -= 99.9
     processed_frames[..., 1] -= 92.1
     processed_frames[..., 2] -= 82.6
@@ -102,7 +102,7 @@ def preprocess_video(video_frames):
     processed_frames[..., 1] /= 62.3
     processed_frames[..., 2] /= 60.3
 
-    return np.expand_dims(processed_frames, axis=0)  # Add batch dimension
+    return np.expand_dims(processed_frames, axis=0)  
 
 # Extract 16 frames from video
 def extract_frames(video_path):
@@ -119,38 +119,55 @@ def extract_frames(video_path):
     cap.release()
 
     if len(frames) < 16:
-        return None  # Not enough frames
+        return None  
     return frames
+
+# Preprocess image
+def preprocess_image(image):
+    image = np.array(image)
+    image = cv2.resize(image, (128, 128))
+    
+    image = image.astype('float32')
+    image[..., 0] -= 99.9
+    image[..., 1] -= 92.1
+    image[..., 2] -= 82.6
+    image[..., 0] /= 65.8
+    image[..., 1] /= 62.3
+    image[..., 2] /= 60.3
+
+    return np.expand_dims(image, axis=0)  
 
 # Streamlit App
 st.title("🔥 Fire and Smoke Detection AI 🔥")
 
-st.sidebar.header("Upload Video")
-uploaded_file = st.sidebar.file_uploader("Upload a video file", type=["mp4", "avi", "mov"])
+st.sidebar.header("Upload File")
+file = st.sidebar.file_uploader("Upload an image or video", type=["jpg", "jpeg", "png", "mp4", "avi", "mov"])
 
-if uploaded_file is not None:
-    st.sidebar.video(uploaded_file)
+model = load_trained_model()
 
-    # Save the uploaded video temporarily
-    temp_video_path = "temp_video.mp4"
-    with open(temp_video_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+if file is not None:
+    file_type = file.type.split('/')[0]
 
-    frames = extract_frames(temp_video_path)
-
-    if frames is not None:
-        st.write("✅ Extracted 16 frames for prediction.")
-        
-        # Load model and preprocess frames
-        model = load_trained_model()
-        processed_input = preprocess_video(frames)
-
-        # Make prediction
-        prediction = model.predict(processed_input)[0][0]
+    if file_type == "image":
+        st.image(file, caption="Uploaded Image", use_column_width=True)
+        image = Image.open(file)
+        processed_input = preprocess_image(image)
+        prediction = model.predict(np.expand_dims(processed_input, axis=0))[0][0]
         result = "🔥 Fire/Smoke Detected" if prediction > 0.5 else "✅ Normal"
+    
+    elif file_type == "video":
+        st.sidebar.video(file)
+        temp_video_path = "temp_video.mp4"
+        with open(temp_video_path, "wb") as f:
+            f.write(file.getbuffer())
 
-        st.subheader("Prediction Result:")
-        st.write(f"**{result}** (Confidence: {prediction:.2f})")
+        frames = extract_frames(temp_video_path)
+        if frames is not None:
+            processed_input = preprocess_video(frames)
+            prediction = model.predict(processed_input)[0][0]
+            result = "🔥 Fire/Smoke Detected" if prediction > 0.5 else "✅ Normal"
+        else:
+            st.error("🚨 Not enough frames extracted from the video. Try another video.")
 
-    else:
-        st.error("🚨 Not enough frames extracted from the video. Try another video.")
+    st.subheader("Prediction Result:")
+    st.write(f"**{result}** (Confidence: {prediction:.2f})")
