@@ -2,10 +2,16 @@ import streamlit as st
 import numpy as np
 import cv2
 import tensorflow as tf
-import imghdr  # To detect image type
+import imghdr  # Detects image type
 from keras.models import Model
 
-# Check if file is an image
+# Load trained model
+@st.cache_resource
+def load_trained_model():
+    model = tf.keras.models.load_model("mivia_full_model.h5", compile=False)  # Use proper model file
+    return model
+
+# Check if the uploaded file is an image
 def is_image_file(uploaded_file):
     file_bytes = uploaded_file.read(32)  # Read first 32 bytes
     file_type = imghdr.what(None, h=file_bytes)  # Detect type
@@ -61,19 +67,19 @@ uploaded_file = st.sidebar.file_uploader("Upload an image or video file", type=[
 if uploaded_file is not None:
     # Check if uploaded file is an image
     if is_image_file(uploaded_file):
-        st.sidebar.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+        st.sidebar.image(uploaded_file, caption="Uploaded Image", use_container_width=True)  # ✅ Updated
+
+        # Read and preprocess image
         image = cv2.imdecode(np.frombuffer(uploaded_file.read(), np.uint8), 1)
+        processed_input = preprocess_image(image)
 
-        if image is not None:
-            processed_input = preprocess_image(image)
+        # Load model and make prediction
+        model = load_trained_model()
+        prediction = model.predict(processed_input)[0][0]
+        result = "🔥 Fire/Smoke Detected" if prediction > 0.5 else "✅ Normal"
 
-            # Load model and make prediction
-            model = load_trained_model()
-            prediction = model.predict(processed_input)[0][0]
-            result = "🔥 Fire/Smoke Detected" if prediction > 0.5 else "✅ Normal"
-
-            st.subheader("Prediction Result:")
-            st.write(f"**{result}** (Confidence: {prediction:.2f})")
+        st.subheader("Prediction Result:")
+        st.write(f"**{result}** (Confidence: {prediction:.2f})")
 
     else:  # Process video
         st.sidebar.video(uploaded_file)
