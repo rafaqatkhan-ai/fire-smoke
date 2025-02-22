@@ -1,6 +1,6 @@
 streamlit
 tensorflow
-cv2
+opencv-python-headless
 keras
 numpy
 pandas
